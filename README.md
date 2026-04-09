@@ -57,12 +57,21 @@ El programa está diseñado con un flujo de trabajo en 6 pestañas secuenciales 
 
 ## Guía Rápida de Uso
 * Datos: En la pestaña 1, carga tus datos del sincrotrón. Selecciona tu columna de Energía en el "Eje X" y la de Absorción en el "Eje Y".
+  
+<img width="1392" height="879" alt="image" src="https://github.com/user-attachments/assets/e29d34b2-403f-4751-b1a6-f1dd7584281b" />
 
 * Procesamiento: Avanza por las pestañas 2, 3 y 4 ajustando los parámetros para aislar correctamente tu señal EXAFS y obtener una transformada de Fourier limpia.
+  
+<img width="1399" height="884" alt="image" src="https://github.com/user-attachments/assets/f3311542-a714-4e09-a327-751f929070c0" />
+<img width="1387" height="886" alt="image" src="https://github.com/user-attachments/assets/2b726210-6638-48f8-91bb-a9093643e003" />
+<img width="1393" height="878" alt="image" src="https://github.com/user-attachments/assets/efe26c89-82b4-4436-9e62-e65ed3e35acc" />
 
 * Paths Teóricos: Ve a la pestaña 5. Carga un archivo .cif de tu molécula teórica, selecciona tu átomo central y pulsa en "Ejecutar FEFF".
+<img width="1393" height="882" alt="image" src="https://github.com/user-attachments/assets/f8091313-26b1-4cea-8187-390acfdc68e6" />
 
 * Fiteo: En la pestaña 6, define tu ventana R. Haz clic en  Autodetectar 1ª Capa para cargar los paths de FEFF correspondientes, y haz clic en Ejecutar para ver los resultados de tu ajuste estructural.
+  
+<img width="1389" height="872" alt="image" src="https://github.com/user-attachments/assets/619c6b75-e053-41b2-86d6-17cad4459eeb" />
 
 * Exportar: Utiliza el botón verde 💾 Exportar Datos (TXT) en el panel derecho en cualquier momento para guardar tus curvas.
 
