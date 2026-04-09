@@ -13,7 +13,7 @@
 **EXAFS Analyzer** es una interfaz gráfica (GUI) avanzada y de código abierto construida en Python (PyQt5) para el procesamiento, análisis y ajuste de datos de espectroscopía de absorción de rayos X (XAS / EXAFS). 
 Este software actúa como un entorno visual unificado ("frontend") para la potente librería científica **Larch** y el motor de dispersión cuántica **FEFF8**, simplificando el flujo de trabajo desde la importación de datos crudos hasta la obtención de parámetros estructurales en la primera capa de coordinación.
 
-**ACTUALMENTE PROGRAMADO PARA LEER FICHEROS DE ADVANCED PHOTON SOURCE (APS)**
+**ACTUALMENTE PROGRAMADO PARA LEER FICHEROS DE ADVANCED PHOTON SOURCE (APS) (Archivos "setup-full-XXXXX")**
 
 ---
 > **Install the required dependencies** (run this command in the folder containing the script):
