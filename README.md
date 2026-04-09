@@ -27,7 +27,7 @@ Este software actúa como un entorno visual unificado ("frontend") para la poten
 > 
 >  **Create a Standalone Executable (.exe) (Run by typing in your terminal inside the script folder)**:
 > ```bash
-> pyinstaller --onefile --noconsole --icon=icon.ico --exclude-module PyQt6 "Ultrafast Spectroscopy Analyzer.py"
+> pyinstaller --onefile --noconsole --icon=icon.ico --exclude-module PyQt6 "EXAFS_Analyzer.py"
 > ```
 
 ---
