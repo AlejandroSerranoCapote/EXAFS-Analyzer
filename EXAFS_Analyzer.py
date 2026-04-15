@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.style as style
 from matplotlib.figure import Figure
-
+from scipy.stats import f
 from larch import Group
 from larch.xafs import pre_edge, autobk, xftf, feffrunner
 from larch.fitting import param
@@ -38,7 +38,8 @@ class AnalizadorTotal(QMainWindow):
         self.datos_promedio_actual = None 
         self.datos_xas = None 
         self.bloquear_plot = False 
-
+        self.historial_fits = []
+        
         style.use('ggplot')
         self.initUI()
 
@@ -674,9 +675,11 @@ class AnalizadorTotal(QMainWindow):
             self.consola_feff.appendPlainText(f"Ruta: {ruta_guardado}")
             self.consola_feff.appendPlainText(f"Átomos calculados: {len(atomos_exportar)}")
             self.btn_run_feff.setEnabled(True)
+            
     def _get_z(self, elemento):
         tabla = {'H':1, 'C':6, 'N':7, 'O':8, 'F':9, 'P':15, 'S':16, 'Cl':17, 'Fe':26, 'Co':27, 'Ni':28, 'Cu':29, 'Zn':30}
         return tabla.get(elemento, 0)
+    
     def init_fit_tab(self):
             layout = QVBoxLayout(self.tab_fit)
             
@@ -705,7 +708,7 @@ class AnalizadorTotal(QMainWindow):
     
             layout.addWidget(group_global)
     
-            # --- 2. GESTOR DINÁMICO DE PATHS (Medio) ---
+            # --- 2. GESTOR DINÁMICO DE PATHS ---
             h_botones_path = QHBoxLayout()
             
             self.btn_add_path = QPushButton("+ Añadir Path Manual")
@@ -715,10 +718,23 @@ class AnalizadorTotal(QMainWindow):
             self.btn_auto_shell = QPushButton(" Autodetectar 1ª Capa")
             self.btn_auto_shell.setStyleSheet("font-weight: bold; padding: 8px; background-color: #f1c40f; color: black; border-radius: 4px;")
             self.btn_auto_shell.clicked.connect(self.autodetectar_primera_capa)
+    
+            # --- NUEVOS BOTONES GUARDAR/CARGAR MODELO ---
+            self.btn_guardar_mod = QPushButton("💾 Guardar Config")
+            self.btn_guardar_mod.setStyleSheet("font-weight: bold; padding: 8px; background-color: #2c3e50; color: white; border-radius: 4px;")
+            self.btn_guardar_mod.clicked.connect(self.guardar_modelo_estado)
+            
+            self.btn_cargar_mod = QPushButton("📂 Cargar Config")
+            self.btn_cargar_mod.setStyleSheet("font-weight: bold; padding: 8px; background-color: #2c3e50; color: white; border-radius: 4px;")
+            self.btn_cargar_mod.clicked.connect(self.cargar_modelo_estado)
+            # ---------------------------------------------
             
             h_botones_path.addWidget(self.btn_add_path)
             h_botones_path.addWidget(self.btn_auto_shell)
+            h_botones_path.addWidget(self.btn_guardar_mod)
+            h_botones_path.addWidget(self.btn_cargar_mod)
             layout.addLayout(h_botones_path)
+            
             # Aquí guardaremos la información de los widgets de cada path
             self.lista_paths_ui = []
     
@@ -737,11 +753,255 @@ class AnalizadorTotal(QMainWindow):
             self.btn_fitear.clicked.connect(self.ejecutar_fit)
             self.btn_fitear.setEnabled(False) # Se activa al añadir el primer path
             layout.addWidget(self.btn_fitear)
-    
+                
+            self.btn_hamilton = QPushButton("Test de Hamilton (Comparar 2 últimos)")
+            self.btn_hamilton.setStyleSheet("font-weight: bold; padding: 10px; background-color: #8e44ad; color: white;")
+            self.btn_hamilton.clicked.connect(self.lanzar_test_hamilton)
+            layout.addWidget(self.btn_hamilton)
+            
             self.consola_fit = QPlainTextEdit()
             self.consola_fit.setReadOnly(True)
             self.consola_fit.setStyleSheet("background-color: #fdf6e3; color: #000000; font-family: monospace;")
             layout.addWidget(self.consola_fit, stretch=1)
+            
+    def guardar_modelo_estado(self):
+            import json
+            
+            if not self.lista_paths_ui:
+                QMessageBox.warning(self, "Aviso", "No hay ningún path configurado para guardar.")
+                return
+    
+            ruta_defecto = getattr(self, 'feff_folder', os.getcwd())
+            archivo, _ = QFileDialog.getSaveFileName(self, "Guardar Configuración Completa", 
+                                                     os.path.join(ruta_defecto, "modelo_completo.json"), 
+                                                     "Archivos JSON (*.json)")
+            if not archivo: return
+    
+            # 1. Recolectar datos crudos (Pestaña 1)
+            archivos_datos = list(self.data_cache.keys()) if self.data_cache else []
+            col_x = self.combo_x.currentText()
+            cols_y = [item.text() for item in self.lista_y.selectedItems()]
+    
+            # 2. Armar el Mega-Diccionario con todas las pestañas
+            estado = {
+                'datos': {
+                    'archivos': archivos_datos,
+                    'col_x': col_x,
+                    'cols_y': cols_y,
+                    'promedio': self.check_promedio.isChecked()
+                },
+                'pre_edge': {
+                    'e0': self.spin_e0.value(),
+                    'pre1': self.spin_pre1.value(),
+                    'pre2': self.spin_pre2.value(),
+                    'norm1': self.spin_norm1.value(),
+                    'norm2': self.spin_norm2.value()
+                },
+                'autobk': {
+                    'rbkg': self.spin_rbkg.value(),
+                    'kmin': self.spin_kmin.value(),
+                    'kmax': self.spin_kmax.value(),
+                    'kweight': self.spin_kweight.value()
+                },
+                'ft': {
+                    'window': self.combo_window.currentText(),
+                    'kmin': self.spin_ft_kmin.value(),
+                    'kmax': self.spin_ft_kmax.value(),
+                    'dk': self.spin_ft_dk.value()
+                },
+                'globales': {
+                    's02': self.spin_s02.value(), 'chk_s02': self.chk_s02.isChecked(),
+                    'de0': self.spin_de0.value(), 'chk_de0': self.chk_de0.isChecked(),
+                    'rmin': self.spin_rmin.value(), 'rmax': self.spin_rmax.value()
+                },
+                'paths': []
+            }
+    
+            # 3. Guardar los paths de FEFF
+            for p in self.lista_paths_ui:
+                estado['paths'].append({
+                    'archivo': p['archivo'],
+                    'activo': p['chk_activo'].isChecked(),
+                    'n': p['spin_n'].value(), 'chk_n': p['chk_n'].isChecked(),
+                    'dr': p['spin_dr'].value(), 'chk_dr': p['chk_dr'].isChecked(),
+                    'sig2': p['spin_sig2'].value(), 'chk_sig2': p['chk_sig2'].isChecked()
+                })
+    
+            # Escribir a disco
+            try:
+                with open(archivo, 'w', encoding='utf-8') as f:
+                    json.dump(estado, f, indent=4)
+                self.consola_fit.appendPlainText(f"\n[💾] Configuración COMPLETA guardada en:\n     {archivo}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo guardar el modelo:\n{e}")
+    
+    def cargar_modelo_estado(self):
+            import json
+            
+            ruta_defecto = getattr(self, 'feff_folder', os.getcwd())
+            archivo, _ = QFileDialog.getOpenFileName(self, "Cargar Configuración Completa", 
+                                                     ruta_defecto, "Archivos JSON (*.json)")
+            if not archivo: return
+    
+            try:
+                with open(archivo, 'r', encoding='utf-8') as f:
+                    estado = json.load(f)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo leer el archivo:\n{e}")
+                return
+    
+            # Bloqueamos los gráficos temporalmente para que no parpadee al cargar todo
+            self.bloquear_plot = True
+    
+            # --- 1. RESTAURAR PESTAÑA 1 (Datos Crudos) ---
+            datos = estado.get('datos', {})
+            archivos_datos = datos.get('archivos', [])
+            
+            if not archivos_datos and datos.get('archivo'): 
+                archivos_datos = [datos.get('archivo')]
+            
+            if archivos_datos:
+                        self.data_cache = {}
+                        columnas_base = None
+                        
+                        # --- Cargamos todos los archivos en bucle ---
+                        for ruta_archivo in archivos_datos:
+                            if os.path.exists(ruta_archivo):
+                                df = self.leer_archivo_inteligente(ruta_archivo)
+                                if df is not None:
+                                    self.data_cache[ruta_archivo] = df.apply(pd.to_numeric, errors='coerce').dropna(axis=1, how='all')
+                                    # Guardamos las columnas del primer archivo válido para los desplegables
+                                    if columnas_base is None:
+                                        columnas_base = list(df.columns)
+                            else:
+                                self.consola_fit.appendPlainText(f"\n Aviso: El archivo {os.path.basename(ruta_archivo)} fue movido o borrado.")
+                        
+                        # Si logramos cargar al menos un archivo con éxito
+                        if self.data_cache:
+                            self.columnas_disponibles = columnas_base
+                            
+                            # Desconectar señales visuales un momento
+                            self.combo_x.blockSignals(True); self.lista_y.blockSignals(True)
+                            
+                            self.combo_x.clear(); self.lista_y.clear()
+                            self.combo_x.addItems(self.columnas_disponibles)
+                            self.lista_y.addItems(self.columnas_disponibles)
+                            
+                            if datos.get('col_x') in self.columnas_disponibles:
+                                self.combo_x.setCurrentText(datos.get('col_x'))
+                                
+                            cols_y_guardadas = datos.get('cols_y', [])
+                            for i in range(self.lista_y.count()):
+                                if self.lista_y.item(i).text() in cols_y_guardadas:
+                                    self.lista_y.item(i).setSelected(True)
+                                    
+                            self.check_promedio.setChecked(datos.get('promedio', True))
+                            
+                            self.combo_x.blockSignals(False); self.lista_y.blockSignals(False)
+                        else:
+                            self.consola_fit.appendPlainText("\n Error: Ninguno de los archivos de datos pudo ser cargado.")
+            else:
+                self.consola_fit.appendPlainText("\n Aviso: El JSON no contiene archivos de datos. Cárgalos manualmente.")
+                   
+            # --- 2. RESTAURAR PESTAÑA 2, 3 y 4 (Parámetros Matemáticos) ---
+            pe = estado.get('pre_edge', {})
+            self.spin_e0.setValue(pe.get('e0', 0))
+            self.spin_pre1.setValue(pe.get('pre1', -150))
+            self.spin_pre2.setValue(pe.get('pre2', -30))
+            self.spin_norm1.setValue(pe.get('norm1', 150))
+            self.spin_norm2.setValue(pe.get('norm2', 800))
+    
+            bk = estado.get('autobk', {})
+            self.spin_rbkg.setValue(bk.get('rbkg', 1.0))
+            self.spin_kmin.setValue(bk.get('kmin', 0.0))
+            self.spin_kmax.setValue(bk.get('kmax', 15.0))
+            self.spin_kweight.setValue(bk.get('kweight', 2))
+    
+            ft = estado.get('ft', {})
+            self.combo_window.setCurrentText(ft.get('window', 'hanning'))
+            self.spin_ft_kmin.setValue(ft.get('kmin', 3.0))
+            self.spin_ft_kmax.setValue(ft.get('kmax', 12.0))
+            self.spin_ft_dk.setValue(ft.get('dk', 1.0))
+    
+            # --- 3. RESTAURAR PESTAÑA 6 (Fit Globales y Paths) ---
+            glob = estado.get('globales', {})
+            self.spin_s02.setValue(glob.get('s02', 0.85)); self.chk_s02.setChecked(glob.get('chk_s02', True))
+            self.spin_de0.setValue(glob.get('de0', 0.0)); self.chk_de0.setChecked(glob.get('chk_de0', True))
+            self.spin_rmin.setValue(glob.get('rmin', 1.0)); self.spin_rmax.setValue(glob.get('rmax', 3.0))
+    
+            for p in list(self.lista_paths_ui): self.eliminar_path_dinamico(p)
+    
+            paths = estado.get('paths', [])
+            for p_data in paths:
+                ruta_path = p_data.get('archivo')
+                if not os.path.exists(ruta_path):
+                    ruta_alternativa = os.path.join(os.path.dirname(archivo), os.path.basename(ruta_path))
+                    ruta_path = ruta_alternativa if os.path.exists(ruta_alternativa) else ruta_path
+    
+                if os.path.exists(ruta_path):
+                    self.agregar_path_dinamico(ruta_path)
+                    ultimo = self.lista_paths_ui[-1]
+                    ultimo['chk_activo'].setChecked(p_data.get('activo', True))
+                    ultimo['spin_n'].setValue(p_data.get('n', 1.0)); ultimo['chk_n'].setChecked(p_data.get('chk_n', True))
+                    ultimo['spin_dr'].setValue(p_data.get('dr', 0.0)); ultimo['chk_dr'].setChecked(p_data.get('chk_dr', True))
+                    ultimo['spin_sig2'].setValue(p_data.get('sig2', 0.005)); ultimo['chk_sig2'].setChecked(p_data.get('chk_sig2', True))
+                else:
+                    self.consola_fit.appendPlainText(f"\n❌ No se encontró el path {os.path.basename(ruta_path)}")
+    
+            # --- 4. RECALCULAR TODO AUTOMÁTICAMENTE ---
+            self.bloquear_plot = False
+            if self.data_cache:
+                self.consola_fit.appendPlainText(f"\n[📂] Recalculando pipeline matemático con la configuración de {os.path.basename(archivo)}...")
+                self.procesar_y_plotear_explorador() # Regenera promedios
+                self.procesar_xas_pipeline()         # Ejecuta Larch para E0, Autobk y FT
+                self.ejecutar_fit()                  # ¡Corre el Fit final!
+            else:
+                self.consola_fit.appendPlainText(f"\n[📂] Parámetros restaurados. Falta cargar datos brutos para continuar.")
+    def guardar_resultados_fit(self, resultado):
+            import datetime
+            
+            # 1. Encontrar la carpeta de los paths que el usuario ha elegido
+            paths_activos = [p for p in self.lista_paths_ui if p['chk_activo'].isChecked()]
+            if not paths_activos:
+                self.consola_fit.appendPlainText("\n Error: No hay paths activos para saber dónde guardar.")
+                return
+                
+            # Extraemos la carpeta donde está guardado el primer path activo (ej: feff0001.dat)
+            carpeta_paths = os.path.dirname(paths_activos[0]['archivo'])
+            
+            # Creamos la subcarpeta 'fit' exactamente en esa ubicación
+            carpeta_fit = os.path.join(carpeta_paths, "fit")
+            os.makedirs(carpeta_fit, exist_ok=True)
+            
+            # 2. Generar un nombre de archivo único basado en la fecha y hora
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            nombre_archivo = f"Resultados_Fit_{timestamp}.txt"
+            ruta_archivo = os.path.join(carpeta_fit, nombre_archivo)
+            
+            # 3. Escribir los datos en el archivo
+            with open(ruta_archivo, "w", encoding="utf-8") as f:
+                f.write("========================================================\n")
+                f.write(f"           RESUMEN DE PARÁMETROS EXAFS PRINCIPALES\n")
+                f.write(f"           Fecha del fit: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("========================================================\n\n")
+                
+                # Extraemos los parámetros principales directamente del motor
+                for name, param in resultado.params.items():
+                    if param.vary and param.stderr is not None:
+                        # Si el parámetro se fiteó, mostramos valor +/- error
+                        f.write(f"{name:>10} = {param.value:10.6f} +/- {param.stderr:10.6f}\n")
+                    else:
+                        # Si el parámetro se fijó, lo indicamos
+                        f.write(f"{name:>10} = {param.value:10.6f} (Fijo)\n")
+                        
+                f.write("\n\n")
+                f.write("========================================================\n")
+                f.write("               REPORTE COMPLETO DE LARCH                \n")
+                f.write("========================================================\n")
+                f.write(feffit_report(resultado))
+                
+            # 4. Avisar al usuario en la consola de la app
+            self.consola_fit.appendPlainText(f"\n[💾] Resultados guardados automáticamente en:\n     {ruta_archivo}\n")
 
     # --- FUNCIONES AUXILIARES PARA CREAR Y DESTRUIR PATHS ---
     def agregar_path_dinamico(self,archivo=None):
@@ -759,6 +1019,11 @@ class AnalizadorTotal(QMainWindow):
         lbl_nombre = QLabel(f"<b>Path {num_path}:</b> {os.path.basename(archivo)}")
         lbl_nombre.setStyleSheet("color: #2980b9; border: none;")
         
+        chk_activo = QCheckBox("ACTIVO")
+        chk_activo.setChecked(True)
+        chk_activo.setStyleSheet("font-weight: bold; color: #27ae60; border: none;")
+        
+        
         # Botón para eliminar este path específico
         btn_eliminar = QPushButton("X")
         btn_eliminar.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; border: none; max-width: 30px;")
@@ -774,7 +1039,8 @@ class AnalizadorTotal(QMainWindow):
         chk_sig2 = QCheckBox("Fitear"); chk_sig2.setChecked(True)
 
         # Organizar en el grid del frame
-        f_layout.addWidget(lbl_nombre, 0, 0, 1, 2)
+        f_layout.addWidget(lbl_nombre, 0, 0)
+        f_layout.addWidget(chk_activo, 0, 1)
         f_layout.addWidget(btn_eliminar, 0, 2)
         
         # FILA 1: N (Coord)
@@ -795,7 +1061,8 @@ class AnalizadorTotal(QMainWindow):
         path_data = {
                     'frame': frame,
                     'archivo': archivo,
-                    'spin_n': spin_n, 'chk_n': chk_n,  # <-- NUEVO
+                    'chk_activo': chk_activo,
+                    'spin_n': spin_n, 'chk_n': chk_n, 
                     'spin_dr': spin_dr, 'chk_dr': chk_dr,
                     'spin_sig2': spin_sig2, 'chk_sig2': chk_sig2
                 }
@@ -1001,11 +1268,18 @@ class AnalizadorTotal(QMainWindow):
             
             # --- EL MOTOR DEL fit DINÁMICO ---
     def ejecutar_fit(self):
+            # 1. Comprobar si hay paths y si al menos UNO está activo
+            paths_activos = [p for p in self.lista_paths_ui if p['chk_activo'].isChecked()]
+        
             if len(self.lista_paths_ui) == 0 or not self.datos_xas:
                 QMessageBox.warning(self, "Error", "Faltan datos XAS o no has añadido ningún Path.")
                 return
-    
-            self.consola_fit.setPlainText(f"Iniciando fit con {len(self.lista_paths_ui)} paths...\n")
+            
+            if len(paths_activos) == 0:
+                QMessageBox.warning(self, "Error", "Tienes paths cargados, pero todos están desactivados.")
+                return
+                
+            self.consola_fit.setPlainText(f"Iniciando fit con {len(paths_activos)} path(s) activo(s)...\n")
     
             # 1. Parámetros Globales
             param_amp = param(self.spin_s02.value(), vary=self.chk_s02.isChecked())
@@ -1016,6 +1290,10 @@ class AnalizadorTotal(QMainWindow):
     
             # 2. Bucle Dinámico de Paths
             for i, path_data in enumerate(self.lista_paths_ui):
+                
+                if not path_data['chk_activo'].isChecked():
+                    continue
+            
                 nombre_n = f'n_{i}'
                 nombre_dr = f'del_r_{i}'
                 nombre_sig2 = f'sig2_{i}'
@@ -1043,12 +1321,20 @@ class AnalizadorTotal(QMainWindow):
             dataset = feffit_dataset(data=self.datos_xas, pathlist=lista_larch_paths, transform=trans)
             
             try:
-                resultado = feffit(params_fit, dataset)
+                        resultado = feffit(params_fit, dataset)
+                        self.historial_fits.append(resultado)
+                        self.consola_fit.appendPlainText(f"\n[!] Fit guardado en memoria. (Total en historial: {len(self.historial_fits)})")
+                        
+                        self.guardar_resultados_fit(resultado)
+                        # ------------------------------------------------
+                        
             except Exception as e:
                 self.consola_fit.appendPlainText(f"\nError matemático: {e}")
                 return
-    
+            
             self.consola_fit.appendPlainText(feffit_report(resultado))
+        
+         
     
             # 4. GRÁFICOS ACTUALIZADOS
             self.fig.clear()
@@ -1295,7 +1581,86 @@ class AnalizadorTotal(QMainWindow):
             except Exception as e:
                 self.consola_feff.appendPlainText(f"\nERROR FATAL AL EJECUTAR FEFF: {str(e)}")
                 QMessageBox.critical(self, "Error", f"Fallo en la ejecución:\n{str(e)}")
-
+                
+    def lanzar_test_hamilton(self):
+            if len(self.historial_fits) < 2:
+                QMessageBox.warning(self, "Aviso", "Necesitas ejecutar al menos 2 fits para poder compararlos.")
+                return
+    
+            # Cogemos los dos últimos fits del historial
+            res_simple = self.historial_fits[-2]
+            res_complejo = self.historial_fits[-1]
+    
+            import re
+            from scipy.stats import f
+            from larch.xafs import feffit_report
+    
+            # --- EXTRACTOR A PRUEBA DE BALAS (VERSIÓN CORREGIDA) ---
+            def extraer_stats_del_reporte(resultado):
+                """Lee el reporte de texto generado por Larch y extrae los números"""
+                texto_reporte = feffit_report(resultado)
+                
+                try:
+                    # Busca "chi_square = 61.879" (evita coger el "reduced chi_square")
+                    chi2_match = re.search(r"^\s*chi_square\s*=\s*([\d\.]+)", texto_reporte, re.MULTILINE)
+                    chi2 = float(chi2_match.group(1)) if chi2_match else None
+                    
+                    # Busca "n_variables = 5"
+                    p_match = re.search(r"^\s*n_variables\s*=\s*([\d\.]+)", texto_reporte, re.MULTILINE)
+                    p = float(p_match.group(1)) if p_match else None
+                    
+                    # Busca "n_independent = 8.639"
+                    n_ind_match = re.search(r"^\s*n_independent\s*=\s*([\d\.]+)", texto_reporte, re.MULTILINE)
+                    n_ind = float(n_ind_match.group(1)) if n_ind_match else 100.0
+                    
+                    return chi2, p, n_ind
+                except Exception as e:
+                    self.consola_fit.appendPlainText(f"\nError de parseo: {e}")
+                    return None, None, None
+            # -------------------------------------------------------
+    
+            # Extraemos los datos leyendo el texto
+            chi2_1, p1, n_ind_1 = extraer_stats_del_reporte(res_simple)
+            chi2_2, p2, n_ind_2 = extraer_stats_del_reporte(res_complejo)
+    
+            if chi2_1 is None or chi2_2 is None:
+                self.consola_fit.appendPlainText("\n❌ Error: No se pudieron leer las estadísticas del reporte.")
+                return
+    
+            # Para el F-test se usan los puntos independientes del modelo complejo
+            n_ind = n_ind_2 
+    
+            self.consola_fit.appendPlainText("\n" + "="*40)
+            self.consola_fit.appendPlainText("📊 TEST DE HAMILTON (F-TEST)")
+            self.consola_fit.appendPlainText(f"Modelo Simple   (n={int(p1)} variables): chi2 = {chi2_1:.2f}")
+            self.consola_fit.appendPlainText(f"Modelo Complejo (n={int(p2)} variables): chi2 = {chi2_2:.2f}")
+    
+            # Si el modelo complejo empeora el chi2 o no añade variables nuevas
+            if chi2_2 >= chi2_1 or p2 <= p1:
+                self.consola_fit.appendPlainText("\n El modelo complejo no mejora el ajuste o no tiene parámetros adicionales.")
+                self.consola_fit.appendPlainText("="*40 + "\n")
+                return
+                
+            # Cálculo estadístico real
+            grados_lib_num = p2 - p1
+            grados_lib_den = n_ind - p2
+            
+            f_stat = ((chi2_1 - chi2_2) / grados_lib_num) / (chi2_2 / grados_lib_den)
+            p_value = f.sf(f_stat, grados_lib_num, grados_lib_den)
+            confianza = (1.0 - p_value) * 100
+            
+            self.consola_fit.appendPlainText("\n Mejora estadísticamente significativa.")
+            self.consola_fit.appendPlainText(f"  Nivel de confianza: {confianza:.2f}%")
+            
+            # Una pequeña ayuda visual para interpretar el resultado
+            if confianza > 95.0:
+                self.consola_fit.appendPlainText("  Conclusión: RECOMENDADO. El nuevo path/parámetro está justificado.")
+            elif confianza > 80.0:
+                self.consola_fit.appendPlainText("  Conclusión: DUDOSO. Mejora, pero la evidencia estadística es débil.")
+            else:
+                self.consola_fit.appendPlainText("  Conclusión: NO RECOMENDADO. Podría ser sobreajuste (overfitting).")
+                
+            self.consola_fit.appendPlainText("="*40 + "\n")
 if __name__ == "__main__":
     # Si ya hay una app corriendo (como en Spyder), la usamos. Si no, creamos una nueva.
     app = QApplication.instance()
