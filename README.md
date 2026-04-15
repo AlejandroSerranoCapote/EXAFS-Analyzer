@@ -71,7 +71,7 @@ El programa está diseñado con un flujo de trabajo en 6 pestañas secuenciales 
 
 * Fiteo: En la pestaña 6, define tu ventana R. Haz clic en  Autodetectar 1ª Capa para cargar los paths de FEFF correspondientes, y haz clic en Ejecutar para ver los resultados de tu ajuste estructural.
   
-<img width="1389" height="872" alt="image" src="https://github.com/user-attachments/assets/619c6b75-e053-41b2-86d6-17cad4459eeb" />
+<img width="1439" height="853" alt="image" src="https://github.com/user-attachments/assets/718f5ea3-491c-4146-9929-42f4fcf6f71e" />
 
 * Exportar: Utiliza el botón verde 💾 Exportar Datos (TXT) en el panel derecho en cualquier momento para guardar tus curvas.
 
