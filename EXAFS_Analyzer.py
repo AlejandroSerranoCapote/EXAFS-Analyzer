@@ -83,38 +83,41 @@ class AnalizadorTotal(QMainWindow):
            self.init_fit_tab()
            self.tabs.addTab(self.tab_fit, "6. Fit")
            
+           self.tab_comparar = QWidget()
+           self.init_comparar_tab()
+           self.tabs.addTab(self.tab_comparar, "7. Comparar")
+           
            self.tabs.currentChanged.connect(self.actualizar_vista_segun_pestana)
    
            left_panel.addWidget(self.tabs)
-           # Eliminamos el addStretch() para que el QScrollArea de los paths 
-           # dentro de las pestañas pueda ocupar todo el espacio disponible.
+
    
-            # ==========================================
+           # ==========================================
            # PANEL DERECHO 
            # ==========================================
            right_container = QWidget()
            right_panel = QVBoxLayout(right_container)
            
-           # --- EL TRUCO ESTÁ AQUÍ: Un layout horizontal ---
+           
            h_tools = QHBoxLayout()
            
            self.fig = Figure()
            self.canvas = FigureCanvas(self.fig)
            
-           # 1. Metemos la barra típica de Matplotlib (la que tiene el disquete)
+           # 1. Metemos la barra típica de Matplotlib 
            self.toolbar = NavigationToolbar(self.canvas, self)
            
-           # 2. Creamos nuestro súper-botón de exportar a TXT
+           # 2. Creamos nuestro de exportar a TXT
            self.btn_export = QPushButton("💾 Exportar Datos (TXT)")
            self.btn_export.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 6px 15px; border-radius: 4px;")
            self.btn_export.clicked.connect(self.exportar_grafica_txt)
            
-           # 3. Los ponemos en fila india: Toolbar -> Espacio vacío -> Botón verde
+           # 3. Los ponemos en fila Toolbar -> Espacio vacío -> Botón verde
            h_tools.addWidget(self.toolbar)
            h_tools.addStretch() 
            h_tools.addWidget(self.btn_export)
            
-           # 4. Añadimos esta fila superior al panel, y justo debajo la gráfica gigante
+           # 4. Añadimos esta fila superior al panel, y justo debajo la gráfica 
            right_panel.addLayout(h_tools)
            right_panel.addWidget(self.canvas)
            
@@ -137,8 +140,7 @@ class AnalizadorTotal(QMainWindow):
            splitter.addWidget(left_container)
            splitter.addWidget(right_container)
            
-           # Definimos los tamaños iniciales en píxeles. 
-           # Ajusta 500 para la izquierda y 1000 para la derecha según tu pantalla.
+           
            splitter.setSizes([500, 1000]) 
            
            # Añadimos el splitter al layout principal de la ventana
@@ -152,6 +154,28 @@ class AnalizadorTotal(QMainWindow):
         self.btn_cargar.setStyleSheet("font-weight: bold; padding: 10px; background-color: #4CAF50; color: white;")
         self.btn_cargar.clicked.connect(self.cargar_archivos)
         layout.addWidget(self.btn_cargar)
+        
+        self.btn_calc_trans = QPushButton("Auto-Calcular Transitorios (48 Bunches)")
+        self.btn_calc_trans.setStyleSheet("font-weight: bold; padding: 10px; background-color: #e67e22; color: white;")
+        self.btn_calc_trans.clicked.connect(self.calcular_transitorios_masivos)
+        layout.addWidget(self.btn_calc_trans)
+        
+        self.btn_cinetica = QPushButton("Graficar Cinética (Decaimiento)")
+        self.btn_cinetica.setStyleSheet("font-weight: bold; padding: 10px; background-color: #9b59b6; color: white;")
+        self.btn_cinetica.clicked.connect(self.graficar_cinetica)
+        layout.addWidget(self.btn_cinetica)
+        
+        self.btn_mapa2d = QPushButton(" Mapa 2D (Energía vs Tiempo)")
+        self.btn_mapa2d.setStyleSheet("font-weight: bold; padding: 10px; background-color: #2980b9; color: white;")
+        self.btn_mapa2d.clicked.connect(self.graficar_mapa_2d)
+        layout.addWidget(self.btn_mapa2d)
+        
+        self.btn_restaurar = QPushButton("Volver a Datos Crudos")
+        self.btn_restaurar.setStyleSheet("font-weight: bold; padding: 10px; background-color: #7f8c8d; color: white;")
+        self.btn_restaurar.clicked.connect(self.restaurar_datos_crudos)
+        layout.addWidget(self.btn_restaurar)
+        
+        
         self.lbl_archivos = QLabel("Archivos en memoria: 0")
         layout.addWidget(self.lbl_archivos)
 
@@ -171,7 +195,352 @@ class AnalizadorTotal(QMainWindow):
         self.check_diferencia = QCheckBox("Mostrar gráfico de diferencia (2 columnas)"); self.check_diferencia.setChecked(False)
         self.check_diferencia.stateChanged.connect(self.procesar_y_plotear_explorador)
         layout.addWidget(self.check_diferencia)
+    def restaurar_datos_crudos(self):
+        # 1. Identificar y borrar solo los "archivos virtuales" creados por la app
+        llaves_a_borrar = [k for k in self.data_cache.keys() if "PROMEDIO_" in k or "TRANSITORIOS" in k]
+        
+        for k in llaves_a_borrar:
+            del self.data_cache[k]
+            
+        # Si por algún motivo no quedan archivos, avisamos
+        if not self.data_cache:
+            QMessageBox.information(self, "Aviso", "No hay datos originales en memoria. Por favor, cárgalos de nuevo.")
+            self.lbl_archivos.setText("Archivos en memoria: 0")
+            self.combo_x.clear()
+            self.lista_y.clear()
+            self.fig.clear()
+            self.canvas.draw()
+            return
+            
+        # 2. Recuperar las columnas originales del primer archivo crudo que cargaste
+        llave_base = list(self.data_cache.keys())[0]
+        self.columnas_disponibles = list(self.data_cache[llave_base].columns)
+        
+        # 3. Actualizar la interfaz sin disparar errores gráficos
+        self.combo_x.blockSignals(True)
+        self.lista_y.blockSignals(True)
+        
+        self.combo_x.clear()
+        self.lista_y.clear()
+        
+        self.combo_x.addItems(self.columnas_disponibles)
+        self.lista_y.addItems(self.columnas_disponibles)
+        
+        # Intentar seleccionar 'Energy' o la primera columna por defecto
+        if 'Energy' in self.columnas_disponibles:
+            self.combo_x.setCurrentText('Energy')
+        else:
+            self.combo_x.setCurrentIndex(0)
+            
+        self.combo_x.blockSignals(False)
+        self.lista_y.blockSignals(False)
+        
+        # 4. Desconectar cualquier evento del ratón (por si vienes del mapa 2D)
+        if hasattr(self, 'cid_hover'):
+            self.fig.canvas.mpl_disconnect(self.cid_hover)
+            del self.cid_hover
+        if hasattr(self, 'cid_draw'):
+            self.fig.canvas.mpl_disconnect(self.cid_draw)
+            del self.cid_draw
+        if hasattr(self, 'bg_cache'):
+            self.bg_cache = None
+            
+        # 5. Limpiar gráfica y volver al estado normal
+        self.fig.clear()
+        self.canvas.draw()
+        
+        # Aseguramos que la lógica de 1 panel se recupere llamando a la función principal
+        self.procesar_y_plotear_explorador()
+        
+    def graficar_mapa_2d(self):
+            # 1. Buscar el archivo virtual con los transitorios
+            df_trans = None
+            for llave, df in self.data_cache.items():
+                if "Transient_b1" in df.columns:
+                    df_trans = df
+                    break
+                    
+            if df_trans is None:
+                QMessageBox.warning(self, "Aviso", "Primero debes calcular los transitorios masivos.")
+                return
+    
+            col_x = self.combo_x.currentText()
+            x_data_crudo = df_trans[col_x].values
+    
+            # 2. Ordenar el eje X (Energía)
+            idx_sort = np.argsort(x_data_crudo)
+            x_data = x_data_crudo[idx_sort]
+    
+            # 3. Construir la Matriz Z
+            matriz_z = []
+            tiempos_us = []
+            for b in range(48):
+                col_name = f"Transient_b{b}"
+                if col_name in df_trans.columns:
+                    y_data = df_trans[col_name].values[idx_sort]
+                    matriz_z.append(y_data)
+                    tiempos_us.append((b - 1) * 0.076)
+    
+            if not matriz_z: return
+            
+            self._mapa_X = x_data
+            self._mapa_Y = np.array(tiempos_us)
+            self._mapa_Z = np.array(matriz_z)
+    
+            # Desconectar eventos previos para evitar memoria fantasma
+            if hasattr(self, 'cid_hover'):
+                self.fig.canvas.mpl_disconnect(self.cid_hover)
+            if hasattr(self, 'cid_draw'):
+                self.fig.canvas.mpl_disconnect(self.cid_draw)
+    
+            self.fig.clear()
+            if hasattr(self, 'check_diferencia'):
+                self.check_diferencia.setChecked(False)
+    
+            # --- CREACIÓN DEL LAYOUT DE 3 PANELES ---
+            gs = self.fig.add_gridspec(2, 2, width_ratios=[4, 1], height_ratios=[1.5, 3], hspace=0.3, wspace=0.1)
+            
+            self.ax_top = self.fig.add_subplot(gs[0, 0])
+            self.ax_map = self.fig.add_subplot(gs[1, 0], sharex=self.ax_top)
+            self.ax_right = self.fig.add_subplot(gs[1, 1], sharey=self.ax_map)
+    
+            z_min, z_max = np.min(self._mapa_Z), np.max(self._mapa_Z)
+            margin = (z_max - z_min) * 0.1
+            self.ax_top.set_ylim(z_min - margin, z_max + margin)
+            self.ax_right.set_xlim(z_min - margin, z_max + margin)
+    
+            c = self.ax_map.contourf(self._mapa_X, self._mapa_Y, self._mapa_Z, levels=100, cmap='jet')
+            self.ax_map.set_xlabel(f"Eje X: {col_x}")
+            self.ax_map.set_ylabel("Tiempo ($\mu s$)")
+            self.ax_map.axhline(0, color='black', linestyle='--', lw=1.5)
+    
+            # -- INICIALIZAR LÍNEAS 1D Y TEXTOS (ANIMADOS PARA BLITTING) --
+            # Para que el blitting funcione, estos objetos deben tener set_animated(True)
+            self.line_top, = self.ax_top.plot(self._mapa_X, self._mapa_Z[0, :], color='black', lw=1.5, animated=True)
+            self.title_top = self.ax_top.set_title("Pasa el ratón por el mapa", animated=True)
+            self.ax_top.set_ylabel("$\Delta\mu$")
+            self.ax_top.axhline(0, color='gray', linestyle='--', lw=0.5)
+    
+            self.line_right, = self.ax_right.plot(self._mapa_Z[:, 0], self._mapa_Y, color='purple', lw=1.5, animated=True)
+            self.title_right = self.ax_right.set_title("Cinética", animated=True)
+            self.ax_right.set_xlabel("$\Delta\mu$")
+            self.ax_right.axvline(0, color='gray', linestyle='--', lw=0.5)
+            self.ax_right.tick_params(axis='y', labelleft=False)
+    
+            self.vline_map = self.ax_map.axvline(self._mapa_X[0], color='white', linestyle=':', alpha=0.8, lw=1.5, animated=True)
+            self.hline_map = self.ax_map.axhline(self._mapa_Y[0], color='white', linestyle=':', alpha=0.8, lw=1.5, animated=True)
+    
+            self.fig.colorbar(c, ax=self.ax_right, pad=0.1, label="Intensidad $\Delta\mu$")
+            self.fig.tight_layout()
+            
+            # --- PREPARACIÓN DEL BLITTING ---
+            self.bg_cache = None # Aquí guardaremos la "foto" del fondo
+            
+            def on_draw(event):
+                # Capturamos el fondo limpio justo después de que Matplotlib redibuja la figura (ej. al hacer zoom)
+                self.bg_cache = self.canvas.copy_from_bbox(self.fig.bbox)
+                
+            self.cid_draw = self.fig.canvas.mpl_connect('draw_event', on_draw)
+            self.cid_hover = self.fig.canvas.mpl_connect('motion_notify_event', self.on_hover_mapa)
+            
+            # Redibujo inicial forzado para capturar el fondo
+            self.canvas.draw()
 
+
+    def on_hover_mapa(self, event):
+        # 1. Chequeos de seguridad para blitting
+        if self.bg_cache is None or event.inaxes != self.ax_map:
+            return
+            
+        x_val, y_val = event.xdata, event.ydata
+        if x_val is None or y_val is None:
+            return
+            
+        # 2. Restaurar el fondo guardado (limpiando las líneas viejas al instante)
+        self.canvas.restore_region(self.bg_cache)
+        
+        # 3. Calcular índices
+        idx_x = (np.abs(self._mapa_X - x_val)).argmin()
+        idx_y = (np.abs(self._mapa_Y - y_val)).argmin()
+        
+        # 4. Actualizar datos de los objetos animados
+        self.vline_map.set_xdata([self._mapa_X[idx_x]])
+        self.hline_map.set_ydata([self._mapa_Y[idx_y]])
+        
+        self.line_top.set_ydata(self._mapa_Z[idx_y, :])
+        self.title_top.set_text(f"Espectro a t = {self._mapa_Y[idx_y]:.3f} $\mu s$")
+        
+        self.line_right.set_xdata(self._mapa_Z[:, idx_x])
+        self.title_right.set_text(f"E = {self._mapa_X[idx_x]:.2f} keV")
+        
+        # 5. Dibujar SOLO los objetos animados encima del fondo restaurado
+        self.ax_map.draw_artist(self.vline_map)
+        self.ax_map.draw_artist(self.hline_map)
+        self.ax_top.draw_artist(self.line_top)
+        self.ax_top.draw_artist(self.title_top)
+        self.ax_right.draw_artist(self.line_right)
+        self.ax_right.draw_artist(self.title_right)
+        
+        # 6. Plasmar todo en la pantalla
+        self.canvas.blit(self.fig.bbox)
+        # flush_events ayuda a limpiar la cola de eventos del ratón para no atascar la GUI
+        self.canvas.flush_events()
+
+        
+    def calcular_transitorios_masivos(self):
+            if not self.data_cache:
+                QMessageBox.warning(self, "Error", "Primero debes cargar los archivos de datos.")
+                return
+    
+            col_x = self.combo_x.currentText()
+            if not col_x: return
+    
+            # Usamos el primer archivo como esqueleto para la energía (Eje X)
+            llave_base = list(self.data_cache.keys())[0]
+            df_resultados = pd.DataFrame()
+            df_resultados[col_x] = self.data_cache[llave_base][col_x]
+    
+            columnas_validas = []
+    
+            # Iteramos por los 48 bunches
+            for b in range(48):
+                trans_archivos_b = [] # Aquí guardaremos el transitorio de ESTE bunch para TODOS los archivos
+                
+                # Recorremos todos los archivos que subiste a la app
+                for ruta, df in self.data_cache.items():
+                    trans_ch1 = None
+                    trans_ch2 = None
+    
+                    # --- Nomenclatura ---
+                    c1_off = f"c1o0b{b}"; c1_on  = f"c1o1b{b}"
+                    c2_off = f"c2o0b{b}"; c2_on  = f"c2o1b{b}"
+                    
+                    apd_off = f"c0o0b{b}" if f"c0o0b{b}" in df.columns else (f"TOTch0b{b}" if f"TOTch0b{b}" in df.columns else None)
+                    apd_on  = f"c0o1b{b}" if f"c0o1b{b}" in df.columns else (f"TOTch0b{b}" if f"TOTch0b{b}" in df.columns else None)
+    
+                    # --- Detector 1 ---
+                    if c1_off in df.columns and c1_on in df.columns:
+                        if apd_off and apd_on:
+                            norm_on = df[c1_on] / df[apd_on].replace(0, np.nan)
+                            norm_off = df[c1_off] / df[apd_off].replace(0, np.nan)
+                            trans_ch1 = norm_on - norm_off
+                        else:
+                            trans_ch1 = df[c1_on] - df[c1_off]
+                    
+                    # --- Detector 2 ---
+                    if c2_off in df.columns and c2_on in df.columns:
+                        if apd_off and apd_on:
+                            norm_on = df[c2_on] / df[apd_on].replace(0, np.nan)
+                            norm_off = df[c2_off] / df[apd_off].replace(0, np.nan)
+                            trans_ch2 = norm_on - norm_off
+                        else:
+                            trans_ch2 = df[c2_on] - df[c2_off]
+    
+                    # --- Promedio intra-archivo (CH1 y CH2) ---
+                    trans_file = None
+                    if trans_ch1 is not None and trans_ch2 is not None:
+                        trans_file = (trans_ch1 + trans_ch2) / 2.0
+                    elif trans_ch1 is not None:
+                        trans_file = trans_ch1
+                    elif trans_ch2 is not None:
+                        trans_file = trans_ch2
+                    
+                    if trans_file is not None:
+                        # Renombramos la Serie para que coincida el índice al concatenar
+                        trans_file.name = ruta 
+                        trans_archivos_b.append(trans_file)
+    
+                # Si logramos extraer este bunch de al menos un archivo
+                if trans_archivos_b:
+                    nombre_final = f"Transient_b{b}"
+                    # Magia de Pandas: Junta todos los archivos de este bunch en columnas y saca la media por fila
+                    df_resultados[nombre_final] = pd.concat(trans_archivos_b, axis=1).mean(axis=1)
+                    columnas_validas.append(nombre_final)
+    
+            if not columnas_validas:
+                QMessageBox.critical(self, "Error", "No se encontraron las columnas necesarias (ej. c1o1bZ) en los archivos.")
+                return
+    
+            # Inyectar el resultado como un nuevo "archivo" en la aplicación
+            nombre_virtual = f"PROMEDIO_{len(self.data_cache)}_ARCHIVOS.csv"
+            
+            # Opcional: si quieres borrar los archivos sueltos para no saturar la memoria, descomenta la siguiente línea
+            # self.data_cache.clear() 
+            
+            self.data_cache[nombre_virtual] = df_resultados
+            self.columnas_disponibles = list(df_resultados.columns)
+            
+            self.combo_x.blockSignals(True); self.lista_y.blockSignals(True)
+            self.combo_x.clear(); self.lista_y.clear()
+            
+            self.combo_x.addItems(self.columnas_disponibles)
+            self.lista_y.addItems(self.columnas_disponibles)
+            
+            self.combo_x.setCurrentText(col_x)
+            self.combo_x.blockSignals(False); self.lista_y.blockSignals(False)
+            self.procesar_y_plotear_explorador()
+    
+            QMessageBox.information(self, "Éxito", f"Se han promediado {len(self.data_cache)-1} archivos.\nTransitorios calculados para {len(columnas_validas)} bunches.")
+    
+    def graficar_cinetica(self):
+        # 1. Buscar el "archivo virtual" que contiene nuestros transitorios calculados
+        df_trans = None
+        for llave, df in self.data_cache.items():
+            if "Transient_b1" in df.columns:
+                df_trans = df
+                break
+                
+        if df_trans is None:
+            QMessageBox.warning(self, "Aviso", "Primero debes calcular los transitorios con el botón naranja.")
+            return
+
+        col_x = self.combo_x.currentText()
+        x_data = df_trans[col_x].values
+
+        # 2. Encontrar la energía donde el impacto es máximo (usando el bunch 1 como referencia)
+        trans_b1 = df_trans["Transient_b1"].values
+        # Buscamos el índice del valor absoluto más alto (el pico positivo o negativo más fuerte)
+        idx_pico = np.argmax(np.abs(trans_b1))
+        energia_pico = x_data[idx_pico]
+
+        tiempos_us = []
+        intensidades = []
+
+        # 3. Extraer la intensidad en esa energía para los 48 bunches
+        for b in range(48):
+            col_name = f"Transient_b{b}"
+            if col_name in df_trans.columns:
+                # El correo de Tyler: 76 ns de separación (0.076 microsegundos)
+                # Asumimos b1 como el t=0 (el pico máximo).
+                # b0 sería el momento justo antes (-0.076 us)
+                t_us = (b - 1) * 0.076 
+                
+                tiempos_us.append(t_us)
+                intensidades.append(df_trans[col_name].values[idx_pico])
+
+        # 4. Dibujar la cinética
+        self.fig.clear()
+        
+        # Desactivamos los subplots de diferencia si estaban activos
+        if hasattr(self, 'ax_diff') and self.ax_diff is not None:
+            self.check_diferencia.setChecked(False)
+            
+        ax = self.fig.add_subplot(111)
+        ax.plot(tiempos_us, intensidades, marker='o', markersize=6, linestyle='-', color='#8e44ad', linewidth=2)
+        
+        ax.set_title(f"Cinética de Decaimiento a {energia_pico:.2f} keV")
+        ax.set_xlabel("Tiempo de retraso ($\mu s$)")
+        ax.set_ylabel("Intensidad Transitoria ($\Delta\mu$)")
+        
+        # Líneas de referencia (cero de intensidad y t=0)
+        ax.axhline(0, color='gray', linestyle='--', alpha=0.7)
+        ax.axvline(0, color='red', linestyle=':', alpha=0.5, label='Impacto Láser (t=0)')
+        
+        ax.legend()
+        self.fig.tight_layout()
+        self.canvas.draw()
+        
+        
     def init_exafs_tab(self):
         layout = QVBoxLayout(self.tab_exafs)
         form_layout = QFormLayout()
@@ -262,7 +631,127 @@ class AnalizadorTotal(QMainWindow):
             lbl_info.setWordWrap(True)
             layout.addWidget(lbl_info)
             layout.addStretch()
+    def init_comparar_tab(self):
+            """Inicializa la UI para comparar un archivo externo con el experimento"""
+            layout = QVBoxLayout(self.tab_comparar)
             
+            lbl_titulo = QLabel("<h2>Comparación Directa: Experimento vs FEFF (chi.dat)</h2>")
+            lbl_desc = QLabel(
+                "Carga directamente el archivo <b>chi.dat</b> generado por FEFF.<br>"
+                "Usa el <b>Multiplicador de Amplitud</b> para igualar la altura de las curvas visualmente y "
+                "comprobar si las fases (la posición izquierda-derecha de los picos) coinciden."
+            )
+            lbl_desc.setWordWrap(True)
+            
+            # Botones de acción
+            h_botones = QHBoxLayout()
+            self.btn_load_sim = QPushButton("1. Cargar Archivo de Simulación (chi.dat)")
+            self.btn_load_sim.setStyleSheet("font-weight: bold; padding: 10px; background-color: #2980b9; color: white;")
+            self.btn_load_sim.clicked.connect(self.cargar_archivo_simulacion)
+            
+            self.btn_comparar = QPushButton("2. Aplicar Filtros y Comparar")
+            self.btn_comparar.setStyleSheet("font-weight: bold; padding: 10px; background-color: #27ae60; color: white;")
+            self.btn_comparar.clicked.connect(self.dibujar_comparacion)
+            self.btn_comparar.setEnabled(False)
+            
+            h_botones.addWidget(self.btn_load_sim)
+            h_botones.addWidget(self.btn_comparar)
+            
+            self.lbl_sim_file = QLabel("<i>Ningún archivo de simulación cargado...</i>")
+            self.lbl_sim_file.setStyleSheet("color: #7f8c8d; margin-bottom: 5px;")
+            
+            
+            h_escala = QHBoxLayout()
+            h_escala.addWidget(QLabel("<b>Multiplicador visual de Amplitud:</b>"))
+            self.spin_escala_sim = QDoubleSpinBox()
+            self.spin_escala_sim.setRange(0.1, 50.0)
+            self.spin_escala_sim.setValue(1.0)
+            self.spin_escala_sim.setSingleStep(0.5)
+            # Al cambiar el número, la gráfica se actualiza sola
+            self.spin_escala_sim.valueChanged.connect(self.dibujar_comparacion) 
+            h_escala.addWidget(self.spin_escala_sim)
+            h_escala.addStretch()
+            
+            
+            layout.addWidget(lbl_titulo)
+            layout.addWidget(lbl_desc)
+            layout.addLayout(h_botones)
+            layout.addWidget(self.lbl_sim_file)
+            layout.addLayout(h_escala) # Añadimos el control al layout
+            layout.addStretch()
+            
+            self.simulacion_path = None
+    def cargar_archivo_simulacion(self):
+        ruta_defecto = getattr(self, 'feff_folder', os.getcwd())
+        archivo, _ = QFileDialog.getOpenFileName(self, "Selecciona chi.dat o archivo de simulación", 
+                                                 ruta_defecto, "Archivos de datos (*.dat *.txt);;Todos (*.*)")
+        if archivo:
+            self.simulacion_path = archivo
+            self.lbl_sim_file.setText(f"<b>Archivo cargado:</b> {os.path.basename(archivo)}")
+            self.btn_comparar.setEnabled(True)
+    def dibujar_comparacion(self):
+            from larch.xafs import xftf
+            from larch import Group
+    
+            if not self.datos_xas:
+                # Quitamos el QMessageBox temporalmente para que el spinbox no salte errores molestos
+                return
+    
+            if not self.simulacion_path:
+                return
+    
+            try:
+                df_sim = pd.read_csv(self.simulacion_path, delim_whitespace=True, comment='#', header=None)
+                k_sim = df_sim[0].values
+                chi_sim_crudo = df_sim[1].values
+                
+                # --- NUEVO: Multiplicamos la simulación por el factor de la interfaz ---
+                factor = self.spin_escala_sim.value()
+                chi_sim_escalado = chi_sim_crudo * factor
+                
+                sim_group = Group(k=k_sim, chi=chi_sim_escalado)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo leer el archivo de simulación:\n{e}")
+                return
+    
+            # Aplicar la misma Transformada de Fourier
+            kw = int(self.spin_kweight.value())
+            kmin_val = self.spin_ft_kmin.value()
+            kmax_val = self.spin_ft_kmax.value()
+            dk_val = self.spin_ft_dk.value()
+            win_val = self.combo_window.currentText()
+    
+            xftf(self.datos_xas, kweight=kw, kmin=kmin_val, kmax=kmax_val, dk=dk_val, window=win_val)
+            xftf(sim_group, kweight=kw, kmin=kmin_val, kmax=kmax_val, dk=dk_val, window=win_val)
+    
+            # Dibujar
+            self.fig.clear()
+            
+            # Espacio K
+            ax1 = self.fig.add_subplot(211)
+            ax1.plot(self.datos_xas.k, self.datos_xas.chi * (self.datos_xas.k**kw), label='Datos Experimento', color='black', lw=2)
+            ax1.plot(sim_group.k, sim_group.chi * (sim_group.k**kw), label=f'Simulación (x{factor})', color='red', lw=2, linestyle='--')
+            
+            ax1.axvspan(kmin_val, kmax_val, color='gray', alpha=0.15, label='Ventana FT')
+            ax1.set_title(f"Comparación en Espacio $k$ (weight={kw})")
+            ax1.set_xlabel(r"$k \ (\AA^{-1})$")
+            ax1.set_ylabel(r"$k^{%d}\chi(k)$" % kw)
+            ax1.axhline(0, color='gray', lw=0.5)
+            ax1.legend(loc='upper right')
+    
+            # Espacio R
+            ax2 = self.fig.add_subplot(212)
+            ax2.plot(self.datos_xas.r, self.datos_xas.chir_mag, label='Datos Experimento', color='black', lw=2)
+            ax2.plot(sim_group.r, sim_group.chir_mag, label=f'Simulación (x{factor})', color='red', lw=2, linestyle='--')
+            
+            ax2.set_title("Comparación en Espacio $R$ (Magnitud)")
+            ax2.set_xlabel(r"$R \ (\AA)$")
+            ax2.set_ylabel(r"$|\chi(R)|$")
+            ax2.set_xlim(0, 6)
+            ax2.legend(loc='upper right')
+    
+            self.fig.tight_layout()
+            self.canvas.draw()
     def init_feff_tab(self):
             from PyQt5.QtWidgets import QLineEdit
             
@@ -273,15 +762,20 @@ class AnalizadorTotal(QMainWindow):
             # 2. Botones de Cargar Archivos (CIF o INP)
             h_load = QHBoxLayout()
             
-            self.btn_load_cif = QPushButton("Cargar .CIF (DFT)")
-            self.btn_load_cif.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 10px; border-radius: 4px;")
-            self.btn_load_cif.clicked.connect(self.cargar_cif)
+            # self.btn_load_cif = QPushButton("Cargar .CIF (DFT)")
+            # self.btn_load_cif.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 10px; border-radius: 4px;")
+            # self.btn_load_cif.clicked.connect(self.cargar_cif)
             
+            self.btn_load_xyz = QPushButton("Cargar .XYZ")
+            self.btn_load_xyz.setStyleSheet("background-color: #16a085; color: white; font-weight: bold; padding: 10px; border-radius: 4px;")
+            self.btn_load_xyz.clicked.connect(self.cargar_xyz)
+        
             self.btn_load_inp = QPushButton("Cargar feff.inp")
             self.btn_load_inp.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 10px; border-radius: 4px;")
             self.btn_load_inp.clicked.connect(self.seleccionar_feff_inp)
             
-            h_load.addWidget(self.btn_load_cif)
+            h_load.addWidget(self.btn_load_xyz)
+            # h_load.addWidget(self.btn_load_cif)
             h_load.addWidget(self.btn_load_inp)
             layout.addLayout(h_load)
             
@@ -361,46 +855,91 @@ class AnalizadorTotal(QMainWindow):
             # Variables internas
             self.atomos_cif = []
             self.caja_a = 1.0
-
-    def cargar_cif(self):
-        archivo, _ = QFileDialog.getOpenFileName(self, "Selecciona archivo .cif", "", "Archivos CIF (*.cif);;Todos (*.*)")
+        
+    def cargar_xyz(self):
+        archivo, _ = QFileDialog.getOpenFileName(self, "Selecciona archivo .xyz", "", "Archivos XYZ (*.xyz);;Todos (*.*)")
         if not archivo: return
         
         self.lbl_cif_path.setText(os.path.basename(archivo))
-        self.atomos_cif = []
         
-        leyendo_atomos = False
-        with open(archivo, 'r') as f:
-            for linea in f:
+        # Reutilizamos tu variable atomos_cif para no tener que cambiar el resto de tu código 3D ni de generación
+        self.atomos_cif = [] 
+        
+        try:
+            with open(archivo, 'r') as f:
+                lineas = f.readlines()
+                
+            if len(lineas) < 3:
+                raise ValueError("El archivo XYZ no tiene el formato correcto.")
+                
+            # La primera línea de un .xyz siempre es el número de átomos
+            num_atomos = int(lineas[0].strip())
+            
+            # Los datos reales empiezan en la línea 3 (índice 2)
+            for linea in lineas[2:2+num_atomos]:
                 partes = linea.split()
-                if not partes: continue
+                if len(partes) >= 4:
+                    # Extraer el símbolo del elemento (quitando números por si acaso)
+                    simbolo = partes[0]
+                    elemento = ''.join([i for i in simbolo if not i.isdigit()])
+                    
+                    # Como ya están en Ångströms cartesianos, ¡los guardamos tal cual!
+                    x = float(partes[1])
+                    y = float(partes[2])
+                    z = float(partes[3])
+                    
+                    self.atomos_cif.append({'elemento': elemento, 'x': x, 'y': y, 'z': z})
+                    
+            if self.atomos_cif:
+                self.consola_feff.setPlainText(f"--- ARCHIVO XYZ CARGADO ---\nSe han detectado {len(self.atomos_cif)} átomos.\n¡Coordenadas cartesianas perfectas listas para FEFF!\nElige tu átomo target en el panel de control.")
+                self.spin_target.setRange(0, len(self.atomos_cif)-1)
+                self.btn_gen_inp.setEnabled(True)
+                self.feff_folder = os.path.dirname(archivo)
+                self.actualizar_visor_3d()
                 
-                if partes[0] == '_cell_length_a':
-                    self.caja_a = float(partes[1])
-                
-                if partes[0] == '_atom_site_type_symbol':
-                    leyendo_atomos = True
-                    continue
-                
-                if leyendo_atomos and len(partes) >= 6:
-                    try:
-                        simbolo = partes[0]
-                        elemento = ''.join([i for i in simbolo if not i.isdigit()])
-                        
-                        x = float(partes[2]) * self.caja_a
-                        y = float(partes[3]) * self.caja_a
-                        z = float(partes[4]) * self.caja_a
-                        
-                        self.atomos_cif.append({'elemento': elemento, 'x': x, 'y': y, 'z': z})
-                    except ValueError:
-                        break 
+        except Exception as e:
+            self.consola_feff.setPlainText(f"Error leyendo el archivo XYZ: {e}")
+            QMessageBox.critical(self, "Error", f"No se pudo leer el XYZ:\n{e}")
+            
+    # def cargar_cif(self):
+    #     archivo, _ = QFileDialog.getOpenFileName(self, "Selecciona archivo .cif", "", "Archivos CIF (*.cif);;Todos (*.*)")
+    #     if not archivo: return
         
-        if self.atomos_cif:
-            self.consola_feff.setPlainText(f"CIF cargado correctamente.\nSe han detectado {len(self.atomos_cif)} átomos.\nElige tu átomo target en el panel de control.")
-            self.spin_target.setRange(0, len(self.atomos_cif)-1)
-            self.btn_gen_inp.setEnabled(True)
-            self.feff_folder = os.path.dirname(archivo)
-            self.actualizar_visor_3d()
+    #     self.lbl_cif_path.setText(os.path.basename(archivo))
+    #     self.atomos_cif = []
+        
+    #     leyendo_atomos = False
+    #     with open(archivo, 'r') as f:
+    #         for linea in f:
+    #             partes = linea.split()
+    #             if not partes: continue
+                
+    #             if partes[0] == '_cell_length_a':
+    #                 self.caja_a = float(partes[1])
+                
+    #             if partes[0] == '_atom_site_type_symbol':
+    #                 leyendo_atomos = True
+    #                 continue
+                
+    #             if leyendo_atomos and len(partes) >= 6:
+    #                 try:
+    #                     simbolo = partes[0]
+    #                     elemento = ''.join([i for i in simbolo if not i.isdigit()])
+                        
+    #                     x = float(partes[2]) * self.caja_a
+    #                     y = float(partes[3]) * self.caja_a
+    #                     z = float(partes[4]) * self.caja_a
+                        
+    #                     self.atomos_cif.append({'elemento': elemento, 'x': x, 'y': y, 'z': z})
+    #                 except ValueError:
+    #                     break 
+        
+    #     if self.atomos_cif:
+    #         self.consola_feff.setPlainText(f"CIF cargado correctamente.\nSe han detectado {len(self.atomos_cif)} átomos.\nElige tu átomo target en el panel de control.")
+    #         self.spin_target.setRange(0, len(self.atomos_cif)-1)
+    #         self.btn_gen_inp.setEnabled(True)
+    #         self.feff_folder = os.path.dirname(archivo)
+    #         self.actualizar_visor_3d()
             
     def leer_y_mostrar_paths_feff(self):
             # 1. Extraer Amplitudes (cw ratio) desde files.dat
@@ -499,13 +1038,29 @@ class AnalizadorTotal(QMainWindow):
             if not self.fig.axes:
                 QMessageBox.warning(self, "Aviso", "No hay ninguna gráfica en pantalla para exportar.")
                 return
-    
+                
             # 2. Pedir al usuario dónde guardar el archivo
             ruta, _ = QFileDialog.getSaveFileName(self, "Guardar Datos como TXT", "Datos_Exportados.txt", "Archivo de Texto (*.txt);;Archivo CSV (*.csv);;Todos (*.*)")
             if not ruta:
                 return
     
-            # 3. Extraer todas las curvas directamente de Matplotlib
+            mapa_exportado = False
+    
+            # --- NUEVO: EXPORTAR MATRIZ 2D SI ESTÁ EN PANTALLA ---
+            # Comprobamos si las variables del mapa existen y si el eje del mapa está actualmente en la figura
+            if hasattr(self, '_mapa_Z') and hasattr(self, 'ax_map') and self.ax_map in self.fig.axes:
+                # Creamos un DataFrame donde las columnas son la Energía y el índice (filas) es el Tiempo
+                df_2d = pd.DataFrame(self._mapa_Z, columns=self._mapa_X, index=self._mapa_Y)
+                df_2d.index.name = "Tiempo_us"
+                
+                # Modificamos el nombre para no sobreescribir el archivo de las líneas 1D
+                ruta_2d = ruta.replace(".txt", "_Matriz2D.txt").replace(".csv", "_Matriz2D.csv")
+                
+                # Exportamos con tabulaciones (ideal para Origin)
+                df_2d.to_csv(ruta_2d, sep='\t')
+                mapa_exportado = True
+    
+            # --- CÓDIGO ORIGINAL: EXPORTAR CURVAS 1D ---
             df_export = pd.DataFrame()
             lineas_encontradas = 0
             
@@ -513,34 +1068,28 @@ class AnalizadorTotal(QMainWindow):
                 for linea in ax.lines:
                     label = linea.get_label()
                     
-                    # Ignoramos líneas decorativas ocultas de Matplotlib (suelen empezar por un guión bajo)
-                    if label.startswith('_'):
-                        continue
-                        
-                    # Si la curva no tiene nombre, le inventamos uno
-                    if not label:
-                        label = f"Curva_{lineas_encontradas}"
-    
-                    # Extraemos los datos físicos
+                    # Ignoramos líneas decorativas (como la cruz del ratón o líneas ocultas)
+                    if label.startswith('_'): continue
+                    if not label: label = f"Curva_{lineas_encontradas}"
+                    
                     x_data = linea.get_xdata()
                     y_data = linea.get_ydata()
-    
-                    # Usamos pd.Series para evitar errores si las curvas tienen diferentes longitudes
+                    
                     df_export[f"{label}_X"] = pd.Series(x_data)
                     df_export[f"{label}_Y"] = pd.Series(y_data)
                     lineas_encontradas += 1
     
-            if lineas_encontradas == 0:
-                QMessageBox.information(self, "Aviso", "La gráfica actual no contiene curvas exportables.")
-                return
-    
-            # 4. Guardar a disco usando tabulaciones (ideal para pegar en Origin o Excel)
-            try:
+            if lineas_encontradas > 0:
                 df_export.to_csv(ruta, sep='\t', index=False)
-                QMessageBox.information(self, "Éxito", f"Se han exportado {lineas_encontradas} curvas correctamente en:\n{ruta}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Fallo al guardar el archivo:\n{e}")  
                 
+            # --- MENSAJE DE ÉXITO DINÁMICO ---
+            mensaje = "Exportación completada con éxito.\n"
+            if lineas_encontradas > 0:
+                mensaje += f"• {lineas_encontradas} curvas 1D guardadas en:\n  {os.path.basename(ruta)}\n"
+            if mapa_exportado:
+                mensaje += f"• Matriz 2D guardada en:\n  {os.path.basename(ruta_2d)}"
+                
+            QMessageBox.information(self, "Éxito", mensaje)
     def actualizar_visor_3d(self):
             if not self.atomos_cif: return
             
@@ -1104,11 +1653,11 @@ class AnalizadorTotal(QMainWindow):
                                 pass
                                 
                             # Una vez leída la cabecera, pasamos al siguiente archivo para ir súper rápido
-                            break 
+                            break
                             
             # 4. Avisar al usuario del resultado
             if paths_encontrados > 0:
-                self.consola_fiteo.appendPlainText(f"\n⚡ Autodetección: Se han añadido {paths_encontrados} paths en el rango de {rmin} a {rmax} Å.")
+                self.consola_fiteo.appendPlainText(f"\n Autodetección: Se han añadido {paths_encontrados} paths en el rango de {rmin} a {rmax} Å.")
             else:
                 QMessageBox.information(self, "Resultado", f"No se encontraron paths en el rango de {rmin} a {rmax} Å.\nPrueba a subir el Rmax o a generar los paths de FEFF de nuevo.")
     def eliminar_path_dinamico(self, path_data):
@@ -1160,9 +1709,7 @@ class AnalizadorTotal(QMainWindow):
     def actualizar_vista_segun_pestana(self):
             idx = self.tabs.currentIndex()
             
-            # 1. Control de la visibilidad de la tabla de FEFF
             if hasattr(self, 'tabla_paths'):
-
                 self.tabla_paths.setVisible(idx == 4)
     
             if idx == 0:
@@ -1171,9 +1718,10 @@ class AnalizadorTotal(QMainWindow):
                 self.actualizar_visor_3d() 
             elif idx == 5:
                 self.procesar_xas_pipeline()
+            elif idx == 6: # <--- NUEVO: Índice 6 es la Pestaña 7
+                self.dibujar_comparacion()
             elif idx in [1, 2, 3]:
                 self.procesar_xas_pipeline()
-
     # ---------------------------------------------------------
     # DIBUJO DE GRÁFICOS
     # ---------------------------------------------------------
@@ -1624,7 +2172,7 @@ class AnalizadorTotal(QMainWindow):
             chi2_2, p2, n_ind_2 = extraer_stats_del_reporte(res_complejo)
     
             if chi2_1 is None or chi2_2 is None:
-                self.consola_fit.appendPlainText("\n❌ Error: No se pudieron leer las estadísticas del reporte.")
+                self.consola_fit.appendPlainText("\n Error: No se pudieron leer las estadísticas del reporte.")
                 return
     
             # Para el F-test se usan los puntos independientes del modelo complejo
@@ -1652,7 +2200,7 @@ class AnalizadorTotal(QMainWindow):
             self.consola_fit.appendPlainText("\n Mejora estadísticamente significativa.")
             self.consola_fit.appendPlainText(f"  Nivel de confianza: {confianza:.2f}%")
             
-            # Una pequeña ayuda visual para interpretar el resultado
+            # Una pequeña ayuda visual para interpretar el resultad
             if confianza > 95.0:
                 self.consola_fit.appendPlainText("  Conclusión: RECOMENDADO. El nuevo path/parámetro está justificado.")
             elif confianza > 80.0:
